@@ -237,7 +237,7 @@ uninstall_all() {
 }
 
 # ============================================================
-# VM MANAGEMENT (KVM) – now container-friendly
+# VM MANAGEMENT (KVM) – now accepts ANY ALLOW_NO_SYSTEMD value
 # ============================================================
 
 check_systemd_or_allow() {
@@ -246,8 +246,8 @@ check_systemd_or_allow() {
         return 0
     fi
 
-    # No systemd – check if user explicitly allows this
-    if [[ "${ALLOW_NO_SYSTEMD}" == "1" || "${ALLOW_NO_SYSTEMD}" == "true" ]]; then
+    # No systemd – check if user set ALLOW_NO_SYSTEMD to any non-empty value
+    if [[ -n "${ALLOW_NO_SYSTEMD}" ]]; then
         echo -e "${YELLOW}WARNING: systemd not found, but ALLOW_NO_SYSTEMD is set.${NC}"
         echo -e "${YELLOW}Will attempt to start libvirtd manually.${NC}"
         return 0
@@ -293,12 +293,6 @@ ensure_kvm() {
     fi
 }
 
-# ... (rest of VM functions: list_vms, create_vm, start_vm, stop_vm, console_vm, vm_management) are identical to previous version ...
-# I'll include them below for completeness, but they are unchanged from the script above.
-
-# ============================================================
-# VM functions (unchanged from earlier)
-# ============================================================
 list_vms() {
     echo -e "${BLUE}===== Existing VMs =====${NC}"
     local vms=$(virsh list --all --name)
