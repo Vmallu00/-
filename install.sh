@@ -38,7 +38,7 @@ ask_yes_no() {
 }
 
 # ============================================================
-# OPTION 1: Install Panel (unchanged)
+# OPTION 1: Install Panel
 # ============================================================
 install_panel() {
     echo -e "${GREEN}===== Installing Pterodactyl Panel =====${NC}"
@@ -143,7 +143,7 @@ EOF
 }
 
 # ============================================================
-# OPTION 2: Install Wings (unchanged)
+# OPTION 2: Install Wings
 # ============================================================
 install_wings() {
     echo -e "${GREEN}===== Installing Wings (Daemon) =====${NC}"
@@ -178,7 +178,7 @@ install_wings() {
 }
 
 # ============================================================
-# OPTION 3: Uninstall Panel + Wings (unchanged)
+# OPTION 3: Uninstall Panel + Wings
 # ============================================================
 uninstall_all() {
     echo -e "${RED}===== UNINSTALL PANEL + WINGS =====${NC}"
@@ -237,16 +237,13 @@ uninstall_all() {
 }
 
 # ============================================================
-# VM MANAGEMENT (KVM) – now accepts ANY ALLOW_NO_SYSTEMD value
+# VM MANAGEMENT (KVM) – with Polkit fix and network setup
 # ============================================================
 
 check_systemd_or_allow() {
     if [[ -d /run/systemd/system ]]; then
-        # systemd is present – all good
         return 0
     fi
-
-    # No systemd – check if user set ALLOW_NO_SYSTEMD to any non-empty value
     if [[ -n "${ALLOW_NO_SYSTEMD}" ]]; then
         echo -e "${YELLOW}WARNING: systemd not found, but ALLOW_NO_SYSTEMD is set.${NC}"
         echo -e "${YELLOW}Will attempt to start libvirtd manually.${NC}"
@@ -261,7 +258,6 @@ check_systemd_or_allow() {
 }
 
 ensure_kvm() {
-    # First, check if we can proceed without systemd
     check_systemd_or_allow
 
     # Install KVM packages if missing
@@ -271,18 +267,34 @@ ensure_kvm() {
         apt install -y qemu-kvm libvirt-daemon-system virtinst cpu-checker whois
     fi
 
-    # If systemd is missing, try to start libvirtd manually
+    # --- DISABLE POLKIT and configure libvirt for non-systemd environments ---
+    echo -e "${YELLOW}Configuring libvirt to skip Polkit...${NC}"
+    cat > /etc/libvirt/libvirtd.conf <<EOF
+listen_tls = 0
+listen_tcp = 1
+auth_unix_ro = "none"
+auth_unix_rw = "none"
+unix_sock_group = "root"
+unix_sock_ro_perms = "0777"
+unix_sock_rw_perms = "0770"
+EOF
+
+    # If systemd is missing, start libvirtd manually
     if [[ ! -d /run/systemd/system ]]; then
         echo -e "${YELLOW}Starting libvirtd manually (since systemd is not available)...${NC}"
-        # Kill any existing libvirtd
         pkill libvirtd 2>/dev/null || true
-        # Start libvirtd as daemon
         libvirtd -d
-        # Wait for socket
-        sleep 2
+        sleep 3
     else
-        # Use systemd if available
         systemctl enable --now libvirtd
+    fi
+
+    # Create the default network (if missing)
+    if ! virsh net-list --all 2>/dev/null | grep -q default; then
+        echo -e "${YELLOW}Creating default NAT network...${NC}"
+        virsh net-define /usr/share/libvirt/networks/default.xml 2>/dev/null || true
+        virsh net-autostart default 2>/dev/null || true
+        virsh net-start default 2>/dev/null || true
     fi
 
     # Check KVM acceleration
@@ -295,7 +307,7 @@ ensure_kvm() {
 
 list_vms() {
     echo -e "${BLUE}===== Existing VMs =====${NC}"
-    local vms=$(virsh list --all --name)
+    local vms=$(virsh list --all --name 2>/dev/null)
     if [[ -z "$vms" ]]; then
         echo -e "${YELLOW}No VMs found.${NC}"
         return 1
