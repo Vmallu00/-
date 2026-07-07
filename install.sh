@@ -38,7 +38,7 @@ ask_yes_no() {
 }
 
 # ============================================================
-# OPTION 1: Install Panel
+# OPTION 1: Install Panel (unchanged)
 # ============================================================
 install_panel() {
     echo -e "${GREEN}===== Installing Pterodactyl Panel =====${NC}"
@@ -143,7 +143,7 @@ EOF
 }
 
 # ============================================================
-# OPTION 2: Install Wings (auto‑connect)
+# OPTION 2: Install Wings (unchanged)
 # ============================================================
 install_wings() {
     echo -e "${GREEN}===== Installing Wings (Daemon) =====${NC}"
@@ -178,7 +178,7 @@ install_wings() {
 }
 
 # ============================================================
-# OPTION 3: Uninstall Panel + Wings
+# OPTION 3: Uninstall Panel + Wings (unchanged)
 # ============================================================
 uninstall_all() {
     echo -e "${RED}===== UNINSTALL PANEL + WINGS =====${NC}"
@@ -237,16 +237,55 @@ uninstall_all() {
 }
 
 # ============================================================
-# VM MANAGEMENT (KVM)
+# VM MANAGEMENT (KVM) – now container-friendly
 # ============================================================
 
+check_systemd_or_allow() {
+    if [[ -d /run/systemd/system ]]; then
+        # systemd is present – all good
+        return 0
+    fi
+
+    # No systemd – check if user explicitly allows this
+    if [[ "${ALLOW_NO_SYSTEMD}" == "1" || "${ALLOW_NO_SYSTEMD}" == "true" ]]; then
+        echo -e "${YELLOW}WARNING: systemd not found, but ALLOW_NO_SYSTEMD is set.${NC}"
+        echo -e "${YELLOW}Will attempt to start libvirtd manually.${NC}"
+        return 0
+    else
+        echo -e "${RED}ERROR: This script requires systemd (PID 1) to manage KVM VMs.${NC}"
+        echo -e "${RED}You are running in a container or environment without systemd.${NC}"
+        echo -e "${RED}To override this check, set environment variable: ALLOW_NO_SYSTEMD=1${NC}"
+        echo -e "${RED}Example: ALLOW_NO_SYSTEMD=1 ./pterodactyl-manager.sh${NC}"
+        exit 1
+    fi
+}
+
 ensure_kvm() {
+    # First, check if we can proceed without systemd
+    check_systemd_or_allow
+
+    # Install KVM packages if missing
     if ! dpkg -l | grep -q qemu-kvm; then
         echo -e "${YELLOW}Installing KVM/libvirt packages...${NC}"
         apt update
         apt install -y qemu-kvm libvirt-daemon-system virtinst cpu-checker whois
+    fi
+
+    # If systemd is missing, try to start libvirtd manually
+    if [[ ! -d /run/systemd/system ]]; then
+        echo -e "${YELLOW}Starting libvirtd manually (since systemd is not available)...${NC}"
+        # Kill any existing libvirtd
+        pkill libvirtd 2>/dev/null || true
+        # Start libvirtd as daemon
+        libvirtd -d
+        # Wait for socket
+        sleep 2
+    else
+        # Use systemd if available
         systemctl enable --now libvirtd
     fi
+
+    # Check KVM acceleration
     if ! kvm-ok 2>/dev/null | grep -q "KVM acceleration can be used"; then
         echo -e "${YELLOW}WARNING: KVM acceleration not available. VM will run in software emulation (slow).${NC}"
     else
@@ -254,6 +293,12 @@ ensure_kvm() {
     fi
 }
 
+# ... (rest of VM functions: list_vms, create_vm, start_vm, stop_vm, console_vm, vm_management) are identical to previous version ...
+# I'll include them below for completeness, but they are unchanged from the script above.
+
+# ============================================================
+# VM functions (unchanged from earlier)
+# ============================================================
 list_vms() {
     echo -e "${BLUE}===== Existing VMs =====${NC}"
     local vms=$(virsh list --all --name)
